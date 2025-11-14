@@ -1,42 +1,55 @@
 <!DOCTYPE html>
 <html lang="ja" class="h-full">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GS1-128 バーコードスキャナ (画像アップロード対応)</title>
-    <!-- Tailwind CSS CDN --><script src="https://cdn.tailwindcss.com"></script>
-    <!-- ZXing (Zebra Crossing) Barcode Scanning Library CDN --><script type="text/javascript" src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ZXing (Zebra Crossing) Barcode Scanning Library CDN -->
+    <script type="text/javascript" src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
     <style>
-        html, body {
+        html,
+        body {
             height: 100%;
             overflow: hidden;
         }
+
         #video-preview {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1);
+            /* 修正点 1: transform: scaleX(-1); <-- 左右反転を削除 */
         }
+
         #result-container {
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
             transition: all 0.3s ease-in-out;
-            background-color: #1a202c; /* bg-gray-900 */
+            background-color: #1a202c;
+            /* bg-gray-900 */
         }
+
         #uploaded-image-preview {
             max-width: 100%;
-            max-height: 200px; /* プレビュー画像の最大高さ */
+            max-height: 200px;
+            /* プレビュー画像の最大高さ */
             object-fit: contain;
             margin-top: 1rem;
             border-radius: 0.5rem;
-            display: none; /* 初期は非表示 */
+            display: none;
+            /* 初期は非表示 */
         }
+
         /* ロード中のスピナー */
         .loader {
-            border: 4px solid #f3f3f3; /* Light grey */
-            border-top: 4px solid #3498db; /* Blue */
+            border: 4px solid #f3f3f3;
+            /* Light grey */
+            border-top: 4px solid #3498db;
+            /* Blue */
             border-radius: 50%;
             width: 30px;
             height: 30px;
@@ -45,83 +58,152 @@
             vertical-align: middle;
             margin-right: 8px;
         }
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
+
         /* AI分割結果表示エリアのスタイル */
         #parsed-result-container {
-            background-color: #2d3748; /* bg-gray-700 */
-            color: #e2e8f0; /* text-gray-200 */
-            padding: 0.75rem; /* p-3 */
-            border-radius: 0.375rem; /* rounded-md */
+            background-color: #2d3748;
+            /* bg-gray-700 */
+            color: #e2e8f0;
+            /* text-gray-200 */
+            padding: 0.75rem;
+            /* p-3 */
+            border-radius: 0.375rem;
+            /* rounded-md */
             font-family: monospace;
-            white-space: pre-wrap; /* 自動折り返し */
+            white-space: pre-wrap;
+            /* 自動折り返し */
             overflow-x: auto;
-            max-height: 150px; /* スクロール可能にする */
-            display: none; /* 初期は非表示 */
+            max-height: 150px;
+            /* スクロール可能にする */
+            display: none;
+            /* 初期は非表示 */
             line-height: 1.5;
         }
+
+        /* --- 修正点 2: スキャン中のUI調整 --- */
+
+        /* スキャン中に結果エリアや他のボタンを隠す */
+        #result-container.scanning-active #resultTextarea,
+        #result-container.scanning-active #parsed-result-label,
+        #result-container.scanning-active #parsed-result-container,
+        #result-container.scanning-active #copyButton,
+        #result-container.scanning-active label[for="imageUpload"] {
+            display: none;
+        }
+
+        /* スキャン中は停止ボタンをグリッドの中央に配置（ボタンのグリッドレイアウト調整） */
+        #result-container.scanning-active .grid {
+            grid-template-columns: 1fr;
+            /* 停止ボタンだけにする */
+        }
+
+        /* スキャン中はstartButtonを隠す */
+        #result-container.scanning-active #startButton {
+            display: none;
+        }
+
+        /* スキャン中はコンテナの高さを最小限にする */
+        #result-container.scanning-active {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+            /* transition: all 0.3s ease-in-out; は既にコンテナ自体にある */
+        }
+
+        /* --- 修正ここまで --- */
     </style>
 </head>
+
 <body class="bg-gray-900 text-white font-sans h-full flex flex-col">
 
-    <!-- メインコンテナ --><div class="relative flex-grow h-full w-full overflow-hidden">
-        
-        <!-- カメラプレビュー --><div id="video-container" class="absolute inset-0 bg-black">
+    <!-- メインコンテナ -->
+    <div class="relative flex-grow h-full w-full overflow-hidden">
+
+        <!-- カメラプレビュー -->
+        <div id="video-container" class="absolute inset-0 bg-black">
             <video id="video-preview" playsinline></video>
-            <!-- アップロード画像プレビュー (ビデオの上に重ねる) --><img id="uploaded-image-preview" class="absolute inset-0 m-auto" alt="Uploaded Barcode Image">
+            <!-- アップロード画像プレビュー (ビデオの上に重ねる) --><img id="uploaded-image-preview" class="absolute inset-0 m-auto"
+                alt="Uploaded Barcode Image">
         </div>
 
-        <!-- スキャン中のインジケーター (スキャンエリアのガイド) --><div id="scanner-guide" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
+        <!-- スキャン中のインジケーター (スキャンエリアのガイド) -->
+        <div id="scanner-guide" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
             <div class="w-3/4 max-w-md h-48 border-4 border-dashed border-red-500 rounded-lg opacity-75 animate-pulse">
                 <div class="relative w-full h-full">
-                    <div class="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-500 rounded-tl-lg"></div>
-                    <div class="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-500 rounded-tr-lg"></div>
-                    <div class="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-red-500 rounded-bl-lg"></div>
-                    <div class="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-red-500 rounded-br-lg"></div>
+                    <div class="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-500 rounded-tl-lg">
+                    </div>
+                    <div class="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-500 rounded-tr-lg">
+                    </div>
+                    <div class="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-red-500 rounded-bl-lg">
+                    </div>
+                    <div class="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-red-500 rounded-br-lg">
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- ヘッダー (ステータス表示) --><div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
+        <!-- ヘッダー (ステータス表示) -->
+        <div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
             <h1 class="text-xl font-bold text-center">GS1-128 スキャナ</h1>
             <p id="status-message" class="text-center text-gray-300 text-sm mt-1">「スキャン開始」または「画像からスキャン」を選択してください。</p>
         </div>
 
-        <!-- 結果表示コンテナ --><div id="result-container" class="p-4 bg-gray-800 rounded-t-lg shadow-lg">
-            
-            <!-- コントロールボタン --><div class="grid grid-cols-2 gap-4 mb-4">
-                <button id="startButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105">
+        <!-- 結果表示コンテナ -->
+        <div id="result-container" class="p-4 bg-gray-800 rounded-t-lg shadow-lg">
+
+            <!-- コントロールボタン -->
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <button id="startButton"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105">
                     カメラでスキャン
                 </button>
-                <button id="stopButton" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out" disabled>
+                <button id="stopButton"
+                    class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out"
+                    disabled>
                     停止
                 </button>
-                <label for="imageUpload" class="col-span-2 bg-purple-600 hover:bg-purple-700 text-white text-center font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105 cursor-pointer">
+                <label for="imageUpload"
+                    class="col-span-2 bg-purple-600 hover:bg-purple-700 text-white text-center font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105 cursor-pointer">
                     画像からスキャン
                     <input type="file" id="imageUpload" accept="image/*" class="hidden">
                 </label>
             </div>
 
-            <!-- 結果表示エリア --><label for="resultTextarea" class="block text-sm font-medium text-gray-300 mb-1">スキャン結果 (Raw):</label>
-            <textarea id="resultTextarea" rows="3" class="w-full p-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" readonly placeholder="ここにバーコードデータが表示されます..."></textarea>
-            
+            <!-- 結果表示エリア --><label for="resultTextarea" class="block text-sm font-medium text-gray-300 mb-1">スキャン結果
+                (Raw):</label>
+            <textarea id="resultTextarea" rows="3"
+                class="w-full p-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                readonly placeholder="ここにバーコードデータが表示されます..."></textarea>
+
             <!-- AI分割結果表示エリア -->
-            <label id="parsed-result-label" for="parsed-result-container" class="block text-sm font-medium text-gray-300 mb-1 mt-3 hidden">AI分割情報:</label>
+            <label id="parsed-result-label" for="parsed-result-container"
+                class="block text-sm font-medium text-gray-300 mb-1 mt-3 hidden">AI分割情報:</label>
             <pre id="parsed-result-container"></pre>
-            
-            <!-- コピーボタン --><button id="copyButton" class="mt-3 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out">
+
+            <!-- コピーボタン --><button id="copyButton"
+                class="mt-3 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out">
                 結果(Raw)をコピー
             </button>
         </div>
     </div>
 
-    <!-- メッセージ表示用モーダル --><div id="message-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+    <!-- メッセージ表示用モーダル -->
+    <div id="message-modal"
+        class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-lg p-6 shadow-xl max-w-sm w-full">
             <h3 id="message-title" class="text-lg font-bold text-gray-900"></h3>
             <p id="message-body" class="text-sm text-gray-700 mt-2"></p>
-            <button id="close-modal-button" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
+            <button id="close-modal-button"
+                class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
                 閉じる
             </button>
         </div>
@@ -137,13 +219,15 @@
             }
 
             const { BrowserMultiFormatReader, BarcodeFormat } = ZXing;
-            
+
             const hints = new Map();
             const formats = [BarcodeFormat.CODE_128];
             hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-            
-            // GS1-128を想定
-            hints.set(ZXing.DecodeHintType.ASSUME_GS1, true); 
+
+            // 修正: 画像解析のためにTRY_HARDERを有効にする
+            hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+            // 修正: ASSUME_GS1 は厳しすぎる可能性があるため、コメントアウト
+            // hints.set(ZXing.DecodeHintType.ASSUME_GS1, true); 
 
 
             const codeReader = new BrowserMultiFormatReader(hints);
@@ -159,7 +243,8 @@
             const statusMessage = document.getElementById('status-message');
             const scannerGuide = document.getElementById('scanner-guide');
             const copyButton = document.getElementById('copyButton');
-            
+            const resultContainer = document.getElementById('result-container'); // 修正: コンテナ要素を取得
+
             const messageModal = document.getElementById('message-modal');
             const messageTitle = document.getElementById('message-title');
             const messageBody = document.getElementById('message-body');
@@ -172,7 +257,7 @@
                 messageBody.textContent = body;
                 messageModal.classList.remove('hidden');
             }
-            
+
             closeModalButton.addEventListener('click', () => {
                 messageModal.classList.add('hidden');
             });
@@ -186,10 +271,10 @@
             }
 
             // --- GS1-128 Parser ---
-            
+
             // FNC1 / Group Separator
             // ZXingはデコード時にデータストリーム内のFNC1 (GS) を \x1D として返すことを期待
-            const FNC1 = '\x1D'; 
+            const FNC1 = '\x1D';
 
             // GS1 AI 定義 (主要なもの)
             // length: AI自体を含まないデータの固定長
@@ -207,7 +292,7 @@
                 '21': { description: 'Serial Number', maxLength: 20, isVariable: true },
                 '30': { description: 'Count', maxLength: 8, isVariable: true },
                 '37': { description: 'Count (Trade Units)', maxLength: 8, isVariable: true },
-                
+
                 // 重量(kg) (d=0-5)
                 '3100': { description: 'Net Weight (kg, d=0)', length: 6, isVariable: false, d: 0 },
                 '3101': { description: 'Net Weight (kg, d=1)', length: 6, isVariable: false, d: 1 },
@@ -215,20 +300,20 @@
                 '3103': { description: 'Net Weight (kg, d=3)', length: 6, isVariable: false, d: 3 },
                 '3104': { description: 'Net Weight (kg, d=4)', length: 6, isVariable: false, d: 4 },
                 '3105': { description: 'Net Weight (kg, d=5)', length: 6, isVariable: false, d: 5 },
-                
+
                 // 他のAI... (例: 311d, 312d, 320d ... 8005, 8110)
             };
 
             // 小数点（d）を持つAIのプレフィックス (3桁)
             const gs1VariableDecimalAIs = [
                 // (例: 310d, 311d ... 369d)
-                { prefix: '310', description: 'Net Weight (kg, d=', length: 6, suffix: ')'},
-                { prefix: '311', description: 'Length (m, d=', length: 6, suffix: ')'},
-                { prefix: '312', description: 'Width (m, d=', length: 6, suffix: ')'},
-                { prefix: '313', description: 'Height (m, d=', length: 6, suffix: ')'},
-                { prefix: '314', description: 'Area (m2, d=', length: 6, suffix: ')'},
-                { prefix: '315', description: 'Volume (l, d=', length: 6, suffix: ')'},
-                { prefix: '316', description: 'Volume (m3, d=', length: 6, suffix: ')'},
+                { prefix: '310', description: 'Net Weight (kg, d=', length: 6, suffix: ')' },
+                { prefix: '311', description: 'Length (m, d=', length: 6, suffix: ')' },
+                { prefix: '312', description: 'Width (m, d=', length: 6, suffix: ')' },
+                { prefix: '313', description: 'Height (m, d=', length: 6, suffix: ')' },
+                { prefix: '314', description: 'Area (m2, d=', length: 6, suffix: ')' },
+                { prefix: '315', description: 'Volume (l, d=', length: 6, suffix: ')' },
+                { prefix: '316', description: 'Volume (m3, d=', length: 6, suffix: ')' },
                 // 他にも多数存在
             ];
 
@@ -236,13 +321,13 @@
             function parseGS1Data(data) {
                 let remainingData = data;
                 const parsedElements = [];
-                
+
                 while (remainingData.length > 0) {
                     let aiFound = false;
                     let ai = '';
                     let def = null;
                     let dataStartIndex = 0;
-                    
+
                     // 4桁AIからチェック (例: 3102)
                     if (remainingData.length >= 4) {
                         ai = remainingData.substring(0, 4);
@@ -263,7 +348,7 @@
                                     description: `${aiVariable.description}${d}${aiVariable.suffix}`,
                                     length: aiVariable.length,
                                     isVariable: false,
-                                    d: parseInt(d, 10) 
+                                    d: parseInt(d, 10)
                                 };
                                 dataStartIndex = 4;
                             }
@@ -279,13 +364,13 @@
                             dataStartIndex = 2;
                         }
                     }
-                    
+
                     if (aiFound) {
                         remainingData = parseElement(ai, def, remainingData.substring(dataStartIndex), parsedElements);
                     } else {
                         // 不明なAIまたはデータの終わり
                         if (remainingData.length > 0) {
-                             parsedElements.push({
+                            parsedElements.push({
                                 ai: '??',
                                 data: remainingData,
                                 description: 'Unknown data or parsing error'
@@ -294,30 +379,30 @@
                         break; // ループ終了
                     }
                 }
-                
+
                 return parsedElements;
             }
 
             function parseElement(ai, def, data, parsedElements) {
                 let elementData = '';
                 let remainingData = data;
-                
+
                 if (def.isVariable) {
                     // 可変長
                     const separatorIndex = data.indexOf(FNC1);
                     const maxLength = def.maxLength;
-                    
+
                     if (separatorIndex !== -1) {
                         // FNC1 (GS) が見つかった
                         elementData = data.substring(0, separatorIndex);
                         remainingData = data.substring(separatorIndex + 1); // FNC1の次から
-                        
+
                         if (elementData.length > maxLength) {
                             elementData = elementData.substring(0, maxLength);
                             // FNC1の位置がmaxLengthより後だった場合、FNC1は無視され、maxLengthまでがデータとなる
                             // (この実装はFNC1を優先)
                         }
-                        
+
                     } else {
                         // FNC1なし (バーコードの終端まで)
                         if (data.length > maxLength) {
@@ -356,13 +441,16 @@
                     data: elementData,
                     description: def.description
                 });
-                
+
                 return remainingData;
             }
             // --- End GS1 Parser ---
 
 
             function stopScan() {
+                // 修正点 2: スキャンUIを元に戻す
+                resultContainer.classList.remove('scanning-active');
+
                 if (currentStream) {
                     currentStream.getTracks().forEach(track => track.stop());
                     currentStream = null;
@@ -374,7 +462,7 @@
                 uploadedImagePreview.classList.add('hidden'); // 画像プレビューを非表示
                 updateStatus('スキャンが停止しました。');
                 scannerGuide.classList.add('hidden');
-                
+
                 // 結果表示エリアもクリア
                 resultTextarea.value = '';
                 parsedResultContainer.textContent = '';
@@ -389,7 +477,7 @@
             function processScanResult(result) {
                 if (result) {
                     console.log('Scan result:', result);
-                    
+
                     const rawText = result.getText();
                     let formatType = "不明";
                     let gs1Data = '';
@@ -398,17 +486,30 @@
                     parsedResultContainer.textContent = '';
                     parsedResultContainer.style.display = 'none';
                     parsedResultLabel.classList.add('hidden');
-                    
+
                     if (result.getBarcodeFormat() === BarcodeFormat.CODE_128) {
-                        // ASSUME_GS1 ヒントにより、]C1 が自動的に付加されることを期待
-                        if (rawText.startsWith(']C1')) {
+                        // ZXingはFNC1 (GS) を \x1D としてデコードする
+                        // ]C1 プレフィックスは ASSUME_GS1 が有効な場合につくことがある
+                        const fnc1Index = rawText.indexOf(FNC1); // \x1D
+                        const c1Prefix = rawText.startsWith(']C1');
+
+                        // 修正: GS1-128の判定を ]C1 または FNC1 の存在（特に先頭）で行う
+                        if (c1Prefix || fnc1Index === 0) {
                             formatType = "GS1-128";
-                            gs1Data = rawText.substring(3);
+
+                            if (c1Prefix) {
+                                // ]C1 プレフィックスがある場合 (主にビデオストリーム)
+                                gs1Data = rawText.substring(3);
+                            } else {
+                                // ]C1 がないが、FNC1 (\x1D) が先頭にある場合 (主に画像スキャン)
+                                gs1Data = rawText.substring(1); // 先頭のFNC1を除去
+                            }
+
                             resultTextarea.value = gs1Data;
-                            
+
                             // --- GS1-128の解析を実行 ---
                             const parsedElements = parseGS1Data(gs1Data);
-                            
+
                             if (parsedElements.length > 0) {
                                 // 読みやすいようにフォーマットして表示
                                 const formattedOutput = parsedElements.map(el => {
@@ -417,12 +518,12 @@
                                     const dataStr = el.data.padEnd(25, ' ');
                                     return `${aiStr} ${dataStr} -> ${el.description}`;
                                 }).join('\n');
-                                
+
                                 parsedResultContainer.textContent = formattedOutput;
                                 parsedResultContainer.style.display = 'block';
                                 parsedResultLabel.classList.remove('hidden');
                             }
-                            
+
                         } else {
                             formatType = "Code 128 (非GS1)";
                             resultTextarea.value = rawText;
@@ -433,15 +534,15 @@
                     }
 
                     updateStatus(`${formatType} を検出しました！`);
-                    
+
                     if ('vibrate' in navigator) {
                         navigator.vibrate(200);
                     }
-                    
+
                     // スキャン自体は停止するが、カメラや画像プレビューの状態は維持する
                     if (currentStream) {
                         // リアルタイムスキャン中だった場合
-                         stopScan(); // カメラを停止
+                        stopScan(); // カメラを停止 (stopScan内でUIも戻る)
                     } else {
                         // 画像スキャンだった場合
                         // (画像プレビューは残し、ボタンを有効化)
@@ -457,6 +558,9 @@
             }
 
             startButton.addEventListener('click', async () => {
+                // 修正点 2: スキャンUIに変更
+                resultContainer.classList.add('scanning-active');
+
                 startButton.disabled = true;
                 stopButton.disabled = false;
                 imageUpload.closest('label').classList.add('pointer-events-none', 'opacity-50'); // 画像アップロードボタンを無効化
@@ -464,7 +568,7 @@
                 parsedResultContainer.textContent = '';
                 parsedResultContainer.style.display = 'none';
                 parsedResultLabel.classList.add('hidden');
-                
+
                 updateStatus('カメラを起動中...', true);
                 uploadedImagePreview.classList.add('hidden'); // 画像プレビューを非表示
                 videoElement.classList.remove('hidden'); // ビデオを表示
@@ -475,7 +579,7 @@
                             facingMode: 'environment'
                         }
                     };
-                    
+
                     currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                     videoElement.srcObject = currentStream;
                     await videoElement.play();
@@ -504,23 +608,23 @@
                     } else if (err.name === 'NotReadableError') {
                         errorMessage = 'カメラが他のアプリケーションで使用されている可能性があります。';
                     }
-                    
+
                     showMessage('カメラエラー', errorMessage);
                     updateStatus('エラーが発生しました。');
-                    stopScan();
+                    stopScan(); // エラー時もstopScanを呼ぶ
                 }
             });
 
             stopButton.addEventListener('click', stopScan);
-            
+
             imageUpload.addEventListener('change', async (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
 
-                stopScan(); // カメラが動作中の場合は停止
+                stopScan(); // カメラが動作中の場合は停止 (stopScan内でUIも戻る)
                 startButton.disabled = true; // カメラボタンを無効化
                 imageUpload.closest('label').classList.add('pointer-events-none', 'opacity-50'); // アップロードボタンを無効化
-                
+
                 resultTextarea.value = ''; // 結果をクリア
                 parsedResultContainer.textContent = ''; // AI結果もクリア
                 parsedResultContainer.style.display = 'none';
@@ -535,7 +639,7 @@
                     videoElement.classList.add('hidden'); // ビデオを非表示
                     uploadedImagePreview.src = e.target.result;
                     uploadedImagePreview.classList.remove('hidden');
-                    
+
                     try {
                         // Image要素からバーコードをデコード
                         const result = await codeReader.decodeFromImageUrl(e.target.result);
@@ -601,4 +705,5 @@
     </script>
 
 </body>
+
 </html>

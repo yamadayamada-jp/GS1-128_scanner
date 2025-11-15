@@ -82,12 +82,94 @@
             white-space: pre-wrap;
             /* 自動折り返し */
             overflow: auto;
-            /* 修正: スクロール */
             max-height: 300px;
-            /* 修正: 高さを増やす */
             display: none;
             /* 初期は非表示 */
             line-height: 1.5;
+        }
+
+        /* スキャンガイドのコンテナ */
+        #scanner-guide {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            /* will be adjusted by #result-container height */
+            display: none;
+            /* hidden */
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        /* * 修正: スキャンガイドのサイズを横長に変更
+         * w-11/12 (91.6%) -> w-[95%]
+         * max-w-lg (32rem) -> max-w-4xl (768px)
+         * h-40 (10rem) -> h-32 (8rem / 128px)
+         */
+        #scanner-guide-box {
+            width: 95%;
+            /* 修正: 91.6% (w-11/12) から 95% に */
+            max-width: 48rem;
+            /* 修正: 32rem (max-w-lg) から 48rem (768px) に */
+            height: 8rem;
+            /* 修正: 10rem (h-40) から 8rem (128px) に */
+            border: 4px dashed #ef4444;
+            /* border-4 border-dashed border-red-500 */
+            border-radius: 0.5rem;
+            /* rounded-lg */
+            opacity: 0.75;
+            position: relative;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* スキャンガイドの四隅の装飾 */
+        .guide-corner {
+            position: absolute;
+            width: 2.5rem;
+            /* w-10 */
+            height: 2.5rem;
+            /* h-10 */
+            border-color: #ef4444;
+            /* border-red-500 */
+        }
+
+        .guide-corner.top-left {
+            top: -4px;
+            left: -4px;
+            border-top-width: 6px;
+            border-left-width: 6px;
+            border-top-left-radius: 0.5rem;
+            /* rounded-tl-lg */
+        }
+
+        .guide-corner.top-right {
+            top: -4px;
+            right: -4px;
+            border-top-width: 6px;
+            border-right-width: 6px;
+            border-top-right-radius: 0.5rem;
+            /* rounded-tr-lg */
+        }
+
+        .guide-corner.bottom-left {
+            bottom: -4px;
+            left: -4px;
+            border-bottom-width: 6px;
+            border-left-width: 6px;
+            border-bottom-left-radius: 0.5rem;
+            /* rounded-bl-lg */
+        }
+
+        .guide-corner.bottom-right {
+            bottom: -4px;
+            right: -4px;
+            border-bottom-width: 6px;
+            border-right-width: 6px;
+            border-bottom-right-radius: 0.5rem;
+            /* rounded-br-lg */
         }
 
         /* スキャン中のUI調整 */
@@ -124,21 +206,16 @@
             <video id="video-preview" playsinline></video>
             <!-- アップロード画像プレビュー --><img id="uploaded-image-preview" class="absolute inset-0 m-auto"
                 alt="Uploaded Barcode Image">
+            <!-- スキャン用Canvas (非表示) --><canvas id="scan-canvas" class="hidden"></canvas>
         </div>
 
         <!-- スキャン中のインジケーター -->
-        <div id="scanner-guide" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
-            <div class="w-3/4 max-w-md h-48 border-4 border-dashed border-red-500 rounded-lg opacity-75 animate-pulse">
-                <div class="relative w-full h-full">
-                    <div class="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-500 rounded-tl-lg">
-                    </div>
-                    <div class="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-500 rounded-tr-lg">
-                    </div>
-                    <div class="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-red-500 rounded-bl-lg">
-                    </div>
-                    <div class="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-red-500 rounded-br-lg">
-                    </div>
-                </div>
+        <div id="scanner-guide">
+            <div id="scanner-guide-box">
+                <div class="guide-corner top-left"></div>
+                <div class="guide-corner top-right"></div>
+                <div class="guide-corner bottom-left"></div>
+                <div class="guide-corner bottom-right"></div>
             </div>
         </div>
 
@@ -216,10 +293,15 @@
             hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
             hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-            const codeReader = new BrowserMultiFormatReader(hints);
+            // 修正: codeReaderの初期化を変更
+            // BrowserMultiFormatReader はカスタムスキャンループでは使わない
+            // decodeOnce と decodeMultiple を使うために BrowserCodeReader をインスタンス化
+            const codeReader = new ZXing.BrowserCodeReader(hints);
 
             const videoElement = document.getElementById('video-preview');
             const uploadedImagePreview = document.getElementById('uploaded-image-preview');
+            const scanCanvas = document.getElementById('scan-canvas');
+            const scanCanvasCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
             const startButton = document.getElementById('startButton');
             const stopButton = document.getElementById('stopButton');
             const imageUpload = document.getElementById('imageUpload');
@@ -228,6 +310,7 @@
             const parsedResultLabel = document.getElementById('parsed-result-label');
             const statusMessage = document.getElementById('status-message');
             const scannerGuide = document.getElementById('scanner-guide');
+            const scannerGuideBox = document.getElementById('scanner-guide-box');
             const copyButton = document.getElementById('copyButton');
             const resultContainer = document.getElementById('result-container');
 
@@ -237,6 +320,8 @@
             const closeModalButton = document.getElementById('close-modal-button');
 
             let currentStream = null;
+            let scanAnimationId = null; // 修正: requestAnimationFrame の ID
+            let isScanning = false; // 修正: スキャン中フラグ
 
             function showMessage(title, body) {
                 messageTitle.textContent = title;
@@ -406,18 +491,25 @@
 
 
             function stopScan() {
+                // 修正: カスタムスキャンループを停止
+                isScanning = false;
+                if (scanAnimationId) {
+                    cancelAnimationFrame(scanAnimationId);
+                    scanAnimationId = null;
+                }
+
                 resultContainer.classList.remove('scanning-active');
                 if (currentStream) {
                     currentStream.getTracks().forEach(track => track.stop());
                     currentStream = null;
                 }
-                codeReader.reset();
+                // codeReader.reset() は BrowserCodeReader には不要な場合がある
                 videoElement.srcObject = null;
                 videoElement.classList.remove('hidden');
                 uploadedImagePreview.src = '';
                 uploadedImagePreview.classList.add('hidden');
                 updateStatus('スキャンが停止しました。');
-                scannerGuide.classList.add('hidden');
+                scannerGuide.style.display = 'none';
 
                 resultTextarea.value = '';
                 parsedResultContainer.textContent = '';
@@ -429,14 +521,12 @@
                 imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
             }
 
-            // --- 修正: 複数結果を処理する関数 ---
             function processScanResults(results) {
                 if (results && results.length > 0) {
 
                     let allRawText = '';
                     let allParsedText = '';
 
-                    // 結果をループ処理
                     results.forEach((result, index) => {
                         console.log(`Scan result ${index + 1}:`, result);
 
@@ -445,8 +535,8 @@
                         let gs1Data = '';
 
                         if (index > 0) {
-                            allRawText += '\n---\n'; // Raw結果の区切り文字
-                            allParsedText += `\n--- (結果 ${index + 1}) ---\n`; // AI分割結果の区切り文字
+                            allRawText += '\n---\n';
+                            allParsedText += `\n--- (結果 ${index + 1}) ---\n`;
                         }
 
                         if (result.getBarcodeFormat() === BarcodeFormat.CODE_128) {
@@ -464,9 +554,7 @@
                                 } else {
                                     gs1Data = rawText;
                                 }
-
                                 allRawText += gs1Data;
-
                                 const parsedElements = parseGS1Data(gs1Data);
                                 if (parsedElements.length > 0) {
                                     const formattedOutput = parsedElements.map(el => {
@@ -478,7 +566,6 @@
                                 } else {
                                     allParsedText += "(AI分割情報なし)";
                                 }
-
                             } else {
                                 formatType = "Code 128 (非GS1)";
                                 allRawText += rawText;
@@ -489,7 +576,7 @@
                             allRawText += rawText;
                             allParsedText += `[${formatType}]\n${rawText}`;
                         }
-                    }); // end forEach
+                    });
 
                     resultTextarea.value = allRawText;
                     parsedResultContainer.textContent = allParsedText;
@@ -502,7 +589,8 @@
                     }
 
                     if (currentStream) {
-                        stopScan(); // カメラは停止
+                        // 修正: カメラストリームがある場合はスキャン成功なので停止
+                        stopScan();
                     } else {
                         // 画像スキャンの場合はボタンを有効化
                         updateStatus(`${results.length} 件のバーコードを検出しました！`);
@@ -512,9 +600,9 @@
                     }
 
                 } else {
-                    updateStatus('バーコードを検出できませんでした。');
+                    // 検出失敗
                     if (currentStream) {
-                        // カメラは停止しない (リアルタイムスキャンは継続)
+                        // 修正: カメラは停止しない (カスタムループが継続)
                     } else {
                         // 画像スキャンの場合は失敗メッセージ
                         showMessage('検出失敗', 'この画像からバーコードを検出できませんでした。');
@@ -522,6 +610,75 @@
                         startButton.disabled = false;
                         imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
                         imageUpload.value = '';
+                    }
+                }
+            }
+
+            // --- 修正: カスタムスキャンループ ---
+            function startCustomScan() {
+                if (!currentStream || !isScanning) {
+                    return;
+                }
+
+                // ガイドボックスの現在の位置とサイズを取得
+                const guideRect = scannerGuideBox.getBoundingClientRect();
+                const videoRect = videoElement.getBoundingClientRect();
+
+                // 映像がまだ準備できていないか、ガイドが非表示なら待機
+                if (videoRect.width === 0 || videoRect.height === 0 || guideRect.width === 0) {
+                    scanAnimationId = requestAnimationFrame(startCustomScan);
+                    return;
+                }
+
+                // 1. ビデオの解像度と表示サイズの比率を計算
+                const videoWidth = videoElement.videoWidth;
+                const videoHeight = videoElement.videoHeight;
+                const scaleX = videoWidth / videoRect.width;
+                const scaleY = videoHeight / videoRect.height;
+
+                // 2. ガイドボックスの、ビデオ要素に対する相対座標を計算
+                const cropX = (guideRect.left - videoRect.left) * scaleX;
+                const cropY = (guideRect.top - videoRect.top) * scaleY;
+                const cropWidth = guideRect.width * scaleX;
+                const cropHeight = guideRect.height * scaleY;
+
+                // 座標がビデオの範囲内か確認 (マイナスや範囲外を防ぐ)
+                const finalCropX = Math.max(0, cropX);
+                const finalCropY = Math.max(0, cropY);
+                const finalCropWidth = Math.min(cropWidth, videoWidth - finalCropX);
+                const finalCropHeight = Math.min(cropHeight, videoHeight - finalCropY);
+
+                // 3. Canvasに切り抜いた領域を描画
+                scanCanvas.width = finalCropWidth;
+                scanCanvas.height = finalCropHeight;
+
+                if (finalCropWidth > 0 && finalCropHeight > 0) {
+                    scanCanvasCtx.drawImage(
+                        videoElement,
+                        finalCropX, finalCropY, // ソース (ビデオ) の切り抜き元
+                        finalCropWidth, finalCropHeight,
+                        0, 0, // 描画先 (Canvas) の位置
+                        finalCropWidth, finalCropHeight // 描画先 (Canvas) のサイズ
+                    );
+
+                    // 4. Canvasからデコード
+                    codeReader.decodeFromCanvas(scanCanvas)
+                        .then(result => {
+                            // 成功
+                            isScanning = false; // ループ停止
+                            processScanResults([result]); // 結果を処理 (stopScanが呼ばれる)
+                        })
+                        .catch(err => {
+                            // 検出失敗 (NotFoundExceptionなど)
+                            if (isScanning) {
+                                // 読み取り失敗、次のフレームへ
+                                scanAnimationId = requestAnimationFrame(startCustomScan);
+                            }
+                        });
+                } else {
+                    // ガイド領域が不正なサイズ (小さすぎる等)
+                    if (isScanning) {
+                        scanAnimationId = requestAnimationFrame(startCustomScan);
                     }
                 }
             }
@@ -548,21 +705,19 @@
                     };
                     currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                     videoElement.srcObject = currentStream;
-                    await videoElement.play();
-                    updateStatus('バーコードをスキャンしてください...');
-                    scannerGuide.classList.remove('hidden');
 
-                    codeReader.decodeFromVideoDevice(undefined, videoElement, (result, err) => {
-                        if (result) {
-                            // --- 修正: 複数結果を処理する関数に配列として渡す ---
-                            processScanResults([result]);
-                            // リアルタイムスキャンの場合、成功したら（processScanResults内で）stopScanが呼ばれる
-                        } else if (err) {
-                            if (!(err instanceof ZXing.NotFoundException) && !(err instanceof ZXing.ChecksumException) && !(err instanceof ZXing.FormatException)) {
-                                console.error('Scanning error:', err);
-                            }
-                        }
-                    });
+                    videoElement.onloadedmetadata = () => {
+                        videoElement.play();
+                        updateStatus('バーコードをスキャンしてください...');
+
+                        // 修正: スキャンガイドと結果コンテナの高さを調整
+                        const resultHeight = resultContainer.offsetHeight;
+                        scannerGuide.style.bottom = `${resultHeight}px`;
+                        scannerGuide.style.display = 'flex';
+
+                        isScanning = true;
+                        startCustomScan(); // カスタムスキャンループを開始
+                    };
 
                 } catch (err) {
                     console.error('Camera access error:', err);
@@ -605,11 +760,11 @@
                         uploadedImagePreview.classList.remove('hidden');
 
                         try {
-                            // --- 修正: decodeMultipleFromImageElement を使用 ---
+                            // 修正: decodeMultipleFromImageElement を使用
                             const results = await codeReader.decodeMultipleFromImageElement(uploadedImagePreview);
 
                             if (results && results.length > 0) {
-                                // --- 修正: 中心に近い順にソート ---
+                                // 中心に近い順にソート
                                 const imgCenterX = uploadedImagePreview.naturalWidth / 2;
                                 const imgCenterY = uploadedImagePreview.naturalHeight / 2;
 
@@ -622,21 +777,17 @@
 
                                     return distA - distB; // 距離が小さい順
                                 });
-                                // --- ソートここまで ---
 
                                 processScanResults(results); // ソート済みの複数結果を渡す
 
                             } else {
-                                // 結果が空 (検出失敗)
                                 processScanResults([]);
                             }
 
                         } catch (err) {
                             console.error('Image scan error:', err);
-                            // NotFoundException も含め、エラー時は空の結果として扱う
                             processScanResults([]);
                         }
-                        // finally は processScanResults 内で処理される
                     };
 
                     uploadedImagePreview.onerror = () => {
@@ -651,7 +802,6 @@
                 reader.readAsDataURL(file);
             });
 
-            // --- 修正: バーコードの中心座標を取得するヘルパー関数 ---
             function getResultCenter(points) {
                 if (!points || points.length === 0) {
                     return { x: 0, y: 0 };
@@ -663,41 +813,36 @@
                     y: sumY / points.length
                 };
             }
-            // --- 修正ここまで ---
-
 
             copyButton.addEventListener('click', () => {
-                // --- 修正: 一番上の結果 (改行まで) をコピー ---
                 const allText = resultTextarea.value;
                 if (!allText) {
                     showMessage('コピー', 'コピーするデータがありません。');
                     return;
                 }
 
-                const firstResult = allText.split('\n---')[0]; // 区切り文字で分割して最初の要素を取得
+                const firstResult = allText.split('\n---')[0];
                 const textToCopy = firstResult.trim();
-                // --- 修正ここまで ---
 
                 if (navigator.clipboard) {
                     navigator.clipboard.writeText(textToCopy).then(() => {
                         showMessage('コピー完了', '一番上の結果(Raw)をクリップボードにコピーしました。');
                     }).catch(err => {
                         console.error('Clipboard API error:', err);
-                        legacyCopy(textToCopy); // フォールバック
+                        legacyCopy(textToCopy);
                     });
                 } else {
-                    legacyCopy(textToCopy); // フォールバック
+                    legacyCopy(textToCopy);
                 }
             });
 
             function legacyCopy(text) {
                 try {
-                    // テキストエリアの値を一時的に変更してコピーする
                     const originalValue = resultTextarea.value;
                     resultTextarea.value = text;
                     resultTextarea.select();
                     document.execCommand('copy');
-                    resultTextarea.value = originalValue; // 元に戻す
+                    resultTextarea.value = originalValue;
                     resultTextarea.blur();
                     showMessage('コピー完了', '一番上の結果(Raw)をクリップボードにコピーしました。');
                 } catch (err) {

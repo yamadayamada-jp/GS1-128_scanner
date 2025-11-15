@@ -161,11 +161,14 @@
                 '22': { description: 'Secondary Data Fields', maxLength: 29, isVariable: true },
                 '30': { description: 'Variable Count', maxLength: 8, isVariable: true },
                 '37': { description: 'Count (Trade Units)', maxLength: 8, isVariable: true },
+                '251': { description: 'Source Entity Identifier', maxLength: 30, isVariable: true },
                 '310': { description: 'Net Weight (kg)', length: 6, isVariable: false },
                 '320': { description: 'Net Weight (lb)', length: 6, isVariable: false },
+                '3102': { description: 'Net Weight (kg, 2 decimals)', length: 6, isVariable: false, decimals: 2 },
                 '400': { description: 'Customer Purchase Order', maxLength: 30, isVariable: true },
                 '410': { description: 'Ship To/Deliver To', length: 13, isVariable: false },
-                '420': { description: 'Ship To Postal Code', maxLength: 20, isVariable: true }
+                '420': { description: 'Ship To Postal Code', maxLength: 20, isVariable: true },
+                '7002': { description: 'Meat Cut Date (YYMMDD)', length: 6, isVariable: false }
             };
 
             function parseGS1Data(data) {
@@ -214,9 +217,19 @@
                             }
                         }
 
+                        // 小数点処理（表示用）
+                        let formattedData = elementData;
+                        if (def.decimals !== undefined && elementData.length === def.length) {
+                            const decimals = def.decimals;
+                            const integerPart = elementData.substring(0, elementData.length - decimals);
+                            const decimalPart = elementData.substring(elementData.length - decimals);
+                            formattedData = `${integerPart}.${decimalPart}`;
+                        }
+
                         parsedElements.push({
                             ai: ai,
-                            data: elementData,
+                            data: elementData,  // 元のデータ（RAW用）
+                            formattedData: formattedData,  // フォーマット済みデータ（Parsed用）
                             description: def.description
                         });
                     } else {
@@ -250,17 +263,18 @@
                 const parsedElements = parseGS1Data(rawText);
                 let formatted = '';
 
-                // Raw data with AI brackets
+                // Raw data with AI brackets（元のデータ）
                 formatted += 'Raw: ';
                 parsedElements.forEach(el => {
                     formatted += `(${el.ai})${el.data}`;
                 });
                 formatted += '\n\nParsed:\n';
 
-                // Formatted details
+                // Formatted details（フォーマット済みデータ）
                 parsedElements.forEach(el => {
                     const aiStr = `(${el.ai})`.padEnd(6, ' ');
-                    const dataStr = el.data.padEnd(20, ' ');
+                    const displayData = el.formattedData || el.data;  // フォーマット済みがあればそれを使用
+                    const dataStr = displayData.padEnd(20, ' ');
                     formatted += `${aiStr} ${dataStr} -> ${el.description}\n`;
                 });
 

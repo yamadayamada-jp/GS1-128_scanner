@@ -66,7 +66,18 @@
             pointer-events: none;
         }
 
+        /* 読み取り範囲を示す箱型ガイド（黄色） */
+        #scan-area-box {
+            position: absolute;
+            width: 95%;
+            height: 35%;
+            border: 2px dashed #ffff00;
+            opacity: 0.6;
+        }
+
+        /* 中心線（赤） */
         #scanner-guide-box {
+            position: absolute;
             width: 90%;
             max-width: 600px;
             height: 3px;
@@ -100,6 +111,9 @@
 
     <!-- スキャンガイド -->
     <div id="scanner-guide">
+        <!-- 読み取り範囲を示す箱型ガイド（黄色） -->
+        <div id="scan-area-box"></div>
+        <!-- 中心線（赤） -->
         <div id="scanner-guide-box"></div>
     </div>
 
@@ -254,68 +268,192 @@
             }
             // --- End GS1 Parser ---
 
+            // DOM要素
+            const videoElement = document.getElementById('video');
+            const scanCanvas = document.getElementById('scan-canvas');
+            const scanCanvasCtx = scanCanvas.getContext('2d');
+            const scannerGuide = document.getElementById('scanner-guide');
+            const scanAreaBox = document.getElementById('scan-area-box');
+            const sourceSelect = document.getElementById('sourceSelect');
+            const sourceSelectPanel = document.getElementById('sourceSelectPanel');
+            const resultElement = document.getElementById('result');
+            const startButton = document.getElementById('startButton');
+            const resetButton = document.getElementById('resetButton');
+
             let selectedDeviceId;
-            const codeReader = new ZXing.BrowserMultiFormatReader()
-            console.log('ZXing code reader initialized')
+            let currentStream = null;
+            let isScanning = false;
+            let scanAnimationId = null;
+
+            const codeReader = new ZXing.BrowserMultiFormatReader();
+            console.log('ZXing code reader initialized');
+
+            // カメラデバイスのリストを取得
             codeReader.listVideoInputDevices()
                 .then((videoInputDevices) => {
-                    const sourceSelect = document.getElementById('sourceSelect')
-                    selectedDeviceId = videoInputDevices[0].deviceId
+                    selectedDeviceId = videoInputDevices[0].deviceId;
+
                     if (videoInputDevices.length >= 1) {
                         videoInputDevices.forEach((element) => {
-                            const sourceOption = document.createElement('option')
-                            sourceOption.text = element.label
-                            sourceOption.value = element.deviceId
-                            sourceSelect.appendChild(sourceOption)
-                        })
+                            const sourceOption = document.createElement('option');
+                            sourceOption.text = element.label;
+                            sourceOption.value = element.deviceId;
+                            sourceSelect.appendChild(sourceOption);
+                        });
 
                         sourceSelect.onchange = () => {
                             selectedDeviceId = sourceSelect.value;
+                            // スキャン中なら再起動
+                            if (isScanning) {
+                                stopScan();
+                                setTimeout(() => startScan(), 100);
+                            }
                         };
 
-                        const sourceSelectPanel = document.getElementById('sourceSelectPanel')
-                        sourceSelectPanel.style.display = 'block'
+                        sourceSelectPanel.style.display = 'block';
                     }
+                })
+                .catch((err) => {
+                    console.error(err);
+                    resultElement.textContent = 'カメラデバイスの取得に失敗しました。';
+                });
 
-                    document.getElementById('startButton').addEventListener('click', () => {
-                        // スキャンガイドを表示
-                        document.getElementById('scanner-guide').style.display = 'flex';
+            // カスタムスキャンループ
+            function scanLoop() {
+                if (!isScanning || !currentStream) {
+                    return;
+                }
 
-                        codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
-                            if (result) {
-                                console.log(result)
+                // スキャンエリアの位置とサイズを取得
+                const areaRect = scanAreaBox.getBoundingClientRect();
+                const videoRect = videoElement.getBoundingClientRect();
 
-                                // スキャン成功時はガイドを非表示
-                                document.getElementById('scanner-guide').style.display = 'none';
+                // ビデオの実際の解像度
+                const videoWidth = videoElement.videoWidth;
+                const videoHeight = videoElement.videoHeight;
+
+                if (videoWidth === 0 || videoHeight === 0) {
+                    scanAnimationId = requestAnimationFrame(scanLoop);
+                    return;
+                }
+
+                // スケールを計算
+                const scaleX = videoWidth / videoRect.width;
+                const scaleY = videoHeight / videoRect.height;
+
+                // スキャンエリアをビデオ座標に変換
+                const cropX = (areaRect.left - videoRect.left) * scaleX;
+                const cropY = (areaRect.top - videoRect.top) * scaleY;
+                const cropWidth = areaRect.width * scaleX;
+                const cropHeight = areaRect.height * scaleY;
+
+                // 範囲チェック
+                const finalCropX = Math.max(0, cropX);
+                const finalCropY = Math.max(0, cropY);
+                const finalCropWidth = Math.min(cropWidth, videoWidth - finalCropX);
+                const finalCropHeight = Math.min(cropHeight, videoHeight - finalCropY);
+
+                // Canvasに切り出し
+                scanCanvas.width = finalCropWidth;
+                scanCanvas.height = finalCropHeight;
+
+                if (finalCropWidth > 0 && finalCropHeight > 0) {
+                    scanCanvasCtx.drawImage(
+                        videoElement,
+                        finalCropX, finalCropY, finalCropWidth, finalCropHeight,
+                        0, 0, finalCropWidth, finalCropHeight
+                    );
+
+                    // CanvasをImage要素に変換してデコード
+                    const img = new Image();
+                    img.onload = () => {
+                        codeReader.decodeFromImageElement(img)
+                            .then(result => {
+                                console.log(result);
+
+                                // スキャン成功
+                                stopScan();
 
                                 // Check if it's CODE_128 (format 4)
                                 if (result.format === 4) {
                                     // Parse as GS1-128
                                     const formatted = formatGS1Result(result.text);
-                                    document.getElementById('result').textContent = formatted;
+                                    resultElement.textContent = formatted;
                                 } else {
                                     // Display as-is for other formats
-                                    document.getElementById('result').textContent = `Format: ${result.format}\n${result.text}`;
+                                    resultElement.textContent = `Format: ${result.format}\n${result.text}`;
                                 }
-                            }
-                            if (err && !(err instanceof ZXing.NotFoundException)) {
-                                console.error(err)
-                                document.getElementById('result').textContent = err
-                            }
-                        })
-                        console.log(`Started continous decode from camera with id ${selectedDeviceId}`)
-                    })
+                            })
+                            .catch(err => {
+                                // 検出失敗、次のフレームへ
+                                if (isScanning) {
+                                    scanAnimationId = requestAnimationFrame(scanLoop);
+                                }
+                            });
+                    };
+                    img.src = scanCanvas.toDataURL();
+                } else {
+                    scanAnimationId = requestAnimationFrame(scanLoop);
+                }
+            }
 
-                    document.getElementById('resetButton').addEventListener('click', () => {
-                        codeReader.reset()
-                        document.getElementById('result').textContent = '';
-                        console.log('Reset.')
-                    })
+            // スキャン開始
+            async function startScan() {
+                try {
+                    const constraints = {
+                        video: {
+                            deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                            facingMode: 'environment'
+                        }
+                    };
 
-                })
-                .catch((err) => {
-                    console.error(err)
-                })
+                    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    videoElement.srcObject = currentStream;
+                    await videoElement.play();
+
+                    console.log('Camera started');
+                    console.log('Video dimensions:', videoElement.videoWidth, 'x', videoElement.videoHeight);
+
+                    // スキャンガイドを表示
+                    scannerGuide.style.display = 'flex';
+                    isScanning = true;
+                    scanLoop();
+                } catch (err) {
+                    console.error('Camera access error:', err);
+                    resultElement.textContent = 'カメラの起動に失敗しました: ' + err.message;
+                }
+            }
+
+            // スキャン停止
+            function stopScan() {
+                isScanning = false;
+
+                if (scanAnimationId) {
+                    cancelAnimationFrame(scanAnimationId);
+                    scanAnimationId = null;
+                }
+
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                    currentStream = null;
+                }
+
+                videoElement.srcObject = null;
+                scannerGuide.style.display = 'none';
+                console.log('Scan stopped');
+            }
+
+            // イベントリスナー
+            startButton.addEventListener('click', () => {
+                if (!isScanning) {
+                    startScan();
+                }
+            });
+
+            resetButton.addEventListener('click', () => {
+                stopScan();
+                resultElement.textContent = '';
+            });
         })
     </script>
 

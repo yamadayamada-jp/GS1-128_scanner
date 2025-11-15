@@ -20,7 +20,6 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            /* 修正点 1: transform: scaleX(-1); <-- 左右反転を削除 */
         }
 
         #result-container {
@@ -82,17 +81,16 @@
             font-family: monospace;
             white-space: pre-wrap;
             /* 自動折り返し */
-            overflow-x: auto;
-            max-height: 150px;
-            /* スクロール可能にする */
+            overflow: auto;
+            /* 修正: スクロール */
+            max-height: 300px;
+            /* 修正: 高さを増やす */
             display: none;
             /* 初期は非表示 */
             line-height: 1.5;
         }
 
-        /* --- 修正点 2: スキャン中のUI調整 --- */
-
-        /* スキャン中に結果エリアや他のボタンを隠す */
+        /* スキャン中のUI調整 */
         #result-container.scanning-active #resultTextarea,
         #result-container.scanning-active #parsed-result-label,
         #result-container.scanning-active #parsed-result-container,
@@ -101,25 +99,18 @@
             display: none;
         }
 
-        /* スキャン中は停止ボタンをグリッドの中央に配置（ボタンのグリッドレイアウト調整） */
         #result-container.scanning-active .grid {
             grid-template-columns: 1fr;
-            /* 停止ボタンだけにする */
         }
 
-        /* スキャン中はstartButtonを隠す */
         #result-container.scanning-active #startButton {
             display: none;
         }
 
-        /* スキャン中はコンテナの高さを最小限にする */
         #result-container.scanning-active {
             padding-top: 1rem;
             padding-bottom: 1rem;
-            /* transition: all 0.3s ease-in-out; は既にコンテナ自体にある */
         }
-
-        /* --- 修正ここまで --- */
     </style>
 </head>
 
@@ -131,11 +122,11 @@
         <!-- カメラプレビュー -->
         <div id="video-container" class="absolute inset-0 bg-black">
             <video id="video-preview" playsinline></video>
-            <!-- アップロード画像プレビュー (ビデオの上に重ねる) --><img id="uploaded-image-preview" class="absolute inset-0 m-auto"
+            <!-- アップロード画像プレビュー --><img id="uploaded-image-preview" class="absolute inset-0 m-auto"
                 alt="Uploaded Barcode Image">
         </div>
 
-        <!-- スキャン中のインジケーター (スキャンエリアのガイド) -->
+        <!-- スキャン中のインジケーター -->
         <div id="scanner-guide" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
             <div class="w-3/4 max-w-md h-48 border-4 border-dashed border-red-500 rounded-lg opacity-75 animate-pulse">
                 <div class="relative w-full h-full">
@@ -151,7 +142,7 @@
             </div>
         </div>
 
-        <!-- ヘッダー (ステータス表示) -->
+        <!-- ヘッダー -->
         <div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
             <h1 class="text-xl font-bold text-center">GS1-128 スキャナ</h1>
             <p id="status-message" class="text-center text-gray-300 text-sm mt-1">「スキャン開始」または「画像からスキャン」を選択してください。</p>
@@ -180,7 +171,7 @@
 
             <!-- 結果表示エリア --><label for="resultTextarea" class="block text-sm font-medium text-gray-300 mb-1">スキャン結果
                 (Raw):</label>
-            <textarea id="resultTextarea" rows="3"
+            <textarea id="resultTextarea" rows="6"
                 class="w-full p-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 readonly placeholder="ここにバーコードデータが表示されます..."></textarea>
 
@@ -191,7 +182,7 @@
 
             <!-- コピーボタン --><button id="copyButton"
                 class="mt-3 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out">
-                結果(Raw)をコピー
+                一番上の結果(Raw)をコピー
             </button>
         </div>
     </div>
@@ -223,12 +214,7 @@
             const hints = new Map();
             const formats = [BarcodeFormat.CODE_128];
             hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-
-            // 修正: 画像解析のためにTRY_HARDERを有効にする
             hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-            // 修正: ASSUME_GS1 は厳しすぎる可能性があるため、コメントアウト
-            // hints.set(ZXing.DecodeHintType.ASSUME_GS1, true); 
-
 
             const codeReader = new BrowserMultiFormatReader(hints);
 
@@ -243,7 +229,7 @@
             const statusMessage = document.getElementById('status-message');
             const scannerGuide = document.getElementById('scanner-guide');
             const copyButton = document.getElementById('copyButton');
-            const resultContainer = document.getElementById('result-container'); // 修正: コンテナ要素を取得
+            const resultContainer = document.getElementById('result-container');
 
             const messageModal = document.getElementById('message-modal');
             const messageTitle = document.getElementById('message-title');
@@ -271,16 +257,8 @@
             }
 
             // --- GS1-128 Parser ---
-
-            // FNC1 / Group Separator
-            // ZXingはデコード時にデータストリーム内のFNC1 (GS) を \x1D として返すことを期待
             const FNC1 = '\x1D';
-
-            // GS1 AI 定義 (主要なもの)
-            // length: AI自体を含まないデータの固定長
-            // maxLength: AI自体を含まないデータの最大可変長
             const gs1AIDefinitions = {
-                // (AI): { description, length (固定) or maxLength (可変), isVariable }
                 '00': { description: 'SSCC', length: 18, isVariable: false },
                 '01': { description: 'GTIN', length: 14, isVariable: false },
                 '02': { description: 'Content GTIN', length: 14, isVariable: false },
@@ -292,21 +270,14 @@
                 '21': { description: 'Serial Number', maxLength: 20, isVariable: true },
                 '30': { description: 'Count', maxLength: 8, isVariable: true },
                 '37': { description: 'Count (Trade Units)', maxLength: 8, isVariable: true },
-
-                // 重量(kg) (d=0-5)
                 '3100': { description: 'Net Weight (kg, d=0)', length: 6, isVariable: false, d: 0 },
                 '3101': { description: 'Net Weight (kg, d=1)', length: 6, isVariable: false, d: 1 },
                 '3102': { description: 'Net Weight (kg, d=2)', length: 6, isVariable: false, d: 2 },
                 '3103': { description: 'Net Weight (kg, d=3)', length: 6, isVariable: false, d: 3 },
                 '3104': { description: 'Net Weight (kg, d=4)', length: 6, isVariable: false, d: 4 },
                 '3105': { description: 'Net Weight (kg, d=5)', length: 6, isVariable: false, d: 5 },
-
-                // 他のAI... (例: 311d, 312d, 320d ... 8005, 8110)
             };
-
-            // 小数点（d）を持つAIのプレフィックス (3桁)
             const gs1VariableDecimalAIs = [
-                // (例: 310d, 311d ... 369d)
                 { prefix: '310', description: 'Net Weight (kg, d=', length: 6, suffix: ')' },
                 { prefix: '311', description: 'Length (m, d=', length: 6, suffix: ')' },
                 { prefix: '312', description: 'Width (m, d=', length: 6, suffix: ')' },
@@ -314,21 +285,30 @@
                 { prefix: '314', description: 'Area (m2, d=', length: 6, suffix: ')' },
                 { prefix: '315', description: 'Volume (l, d=', length: 6, suffix: ')' },
                 { prefix: '316', description: 'Volume (m3, d=', length: 6, suffix: ')' },
-                // 他にも多数存在
             ];
 
+            function startsWithKnownAI(data) {
+                if (data.length >= 4) {
+                    const ai4 = data.substring(0, 4);
+                    if (gs1AIDefinitions[ai4]) return true;
+                    const aiPrefix = data.substring(0, 3);
+                    if (gs1VariableDecimalAIs.find(d => d.prefix === aiPrefix)) return true;
+                }
+                if (data.length >= 2) {
+                    const ai2 = data.substring(0, 2);
+                    if (gs1AIDefinitions[ai2]) return true;
+                }
+                return false;
+            }
 
             function parseGS1Data(data) {
                 let remainingData = data;
                 const parsedElements = [];
-
                 while (remainingData.length > 0) {
                     let aiFound = false;
                     let ai = '';
                     let def = null;
                     let dataStartIndex = 0;
-
-                    // 4桁AIからチェック (例: 3102)
                     if (remainingData.length >= 4) {
                         ai = remainingData.substring(0, 4);
                         if (gs1AIDefinitions[ai]) {
@@ -336,13 +316,11 @@
                             def = gs1AIDefinitions[ai];
                             dataStartIndex = 4;
                         } else {
-                            // 3桁 + d のパターンチェック (例: 310d)
                             const aiPrefix = remainingData.substring(0, 3);
                             const aiVariable = gs1VariableDecimalAIs.find(d => d.prefix === aiPrefix);
                             if (aiVariable) {
                                 aiFound = true;
                                 const d = remainingData.substring(3, 4);
-                                // aiを (例) 310d -> 3102 のようにフルで保持
                                 ai = aiPrefix + d;
                                 def = {
                                     description: `${aiVariable.description}${d}${aiVariable.suffix}`,
@@ -354,8 +332,6 @@
                             }
                         }
                     }
-
-                    // 2桁AIチェック (例: 01, 10, 21)
                     if (!aiFound && remainingData.length >= 2) {
                         ai = remainingData.substring(0, 2);
                         if (gs1AIDefinitions[ai]) {
@@ -364,11 +340,9 @@
                             dataStartIndex = 2;
                         }
                     }
-
                     if (aiFound) {
                         remainingData = parseElement(ai, def, remainingData.substring(dataStartIndex), parsedElements);
                     } else {
-                        // 不明なAIまたはデータの終わり
                         if (remainingData.length > 0) {
                             parsedElements.push({
                                 ai: '??',
@@ -376,35 +350,25 @@
                                 description: 'Unknown data or parsing error'
                             });
                         }
-                        break; // ループ終了
+                        break;
                     }
                 }
-
                 return parsedElements;
             }
 
             function parseElement(ai, def, data, parsedElements) {
                 let elementData = '';
                 let remainingData = data;
-
                 if (def.isVariable) {
-                    // 可変長
                     const separatorIndex = data.indexOf(FNC1);
                     const maxLength = def.maxLength;
-
                     if (separatorIndex !== -1) {
-                        // FNC1 (GS) が見つかった
                         elementData = data.substring(0, separatorIndex);
-                        remainingData = data.substring(separatorIndex + 1); // FNC1の次から
-
+                        remainingData = data.substring(separatorIndex + 1);
                         if (elementData.length > maxLength) {
                             elementData = elementData.substring(0, maxLength);
-                            // FNC1の位置がmaxLengthより後だった場合、FNC1は無視され、maxLengthまでがデータとなる
-                            // (この実装はFNC1を優先)
                         }
-
                     } else {
-                        // FNC1なし (バーコードの終端まで)
                         if (data.length > maxLength) {
                             elementData = data.substring(0, maxLength);
                             remainingData = data.substring(maxLength);
@@ -414,56 +378,47 @@
                         }
                     }
                 } else {
-                    // 固定長
                     const length = def.length;
                     if (data.length >= length) {
                         elementData = data.substring(0, length);
                         remainingData = data.substring(length);
                     } else {
-                        // データが不足している
-                        elementData = data; // ある分だけ
+                        elementData = data;
                         remainingData = '';
                     }
                 }
-
-                // 小数点処理 (例: 3102)
                 if (def.d !== undefined) {
                     const d = def.d;
-                    if (elementData.length === def.length) { // 期待される長さ
+                    if (elementData.length === def.length) {
                         const integerPart = elementData.substring(0, def.length - d);
                         const decimalPart = elementData.substring(def.length - d);
                         elementData = `${integerPart}.${decimalPart}`;
                     }
                 }
-
                 parsedElements.push({
                     ai: ai,
                     data: elementData,
                     description: def.description
                 });
-
                 return remainingData;
             }
             // --- End GS1 Parser ---
 
 
             function stopScan() {
-                // 修正点 2: スキャンUIを元に戻す
                 resultContainer.classList.remove('scanning-active');
-
                 if (currentStream) {
                     currentStream.getTracks().forEach(track => track.stop());
                     currentStream = null;
                 }
-                codeReader.reset(); // Readerをリセット
+                codeReader.reset();
                 videoElement.srcObject = null;
-                videoElement.classList.remove('hidden'); // ビデオを再表示
+                videoElement.classList.remove('hidden');
                 uploadedImagePreview.src = '';
-                uploadedImagePreview.classList.add('hidden'); // 画像プレビューを非表示
+                uploadedImagePreview.classList.add('hidden');
                 updateStatus('スキャンが停止しました。');
                 scannerGuide.classList.add('hidden');
 
-                // 結果表示エリアもクリア
                 resultTextarea.value = '';
                 parsedResultContainer.textContent = '';
                 parsedResultContainer.style.display = 'none';
@@ -471,82 +426,86 @@
 
                 startButton.disabled = false;
                 stopButton.disabled = true;
-                imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50'); // 画像アップロードボタンを有効化
+                imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
             }
 
-            function processScanResult(result) {
-                if (result) {
-                    console.log('Scan result:', result);
+            // --- 修正: 複数結果を処理する関数 ---
+            function processScanResults(results) {
+                if (results && results.length > 0) {
 
-                    const rawText = result.getText();
-                    let formatType = "不明";
-                    let gs1Data = '';
+                    let allRawText = '';
+                    let allParsedText = '';
 
-                    // AI分割結果表示エリアをクリア
-                    parsedResultContainer.textContent = '';
-                    parsedResultContainer.style.display = 'none';
-                    parsedResultLabel.classList.add('hidden');
+                    // 結果をループ処理
+                    results.forEach((result, index) => {
+                        console.log(`Scan result ${index + 1}:`, result);
 
-                    if (result.getBarcodeFormat() === BarcodeFormat.CODE_128) {
-                        // ZXingはFNC1 (GS) を \x1D としてデコードする
-                        // ]C1 プレフィックスは ASSUME_GS1 が有効な場合につくことがある
-                        const fnc1Index = rawText.indexOf(FNC1); // \x1D
-                        const c1Prefix = rawText.startsWith(']C1');
+                        const rawText = result.getText();
+                        let formatType = "不明";
+                        let gs1Data = '';
 
-                        // 修正: GS1-128の判定を ]C1 または FNC1 の存在（特に先頭）で行う
-                        if (c1Prefix || fnc1Index === 0) {
-                            formatType = "GS1-128";
-
-                            if (c1Prefix) {
-                                // ]C1 プレフィックスがある場合 (主にビデオストリーム)
-                                gs1Data = rawText.substring(3);
-                            } else {
-                                // ]C1 がないが、FNC1 (\x1D) が先頭にある場合 (主に画像スキャン)
-                                gs1Data = rawText.substring(1); // 先頭のFNC1を除去
-                            }
-
-                            resultTextarea.value = gs1Data;
-
-                            // --- GS1-128の解析を実行 ---
-                            const parsedElements = parseGS1Data(gs1Data);
-
-                            if (parsedElements.length > 0) {
-                                // 読みやすいようにフォーマットして表示
-                                const formattedOutput = parsedElements.map(el => {
-                                    // データを整列させる (AI: 6桁, Data: 25桁)
-                                    const aiStr = `(${el.ai})`.padEnd(7, ' ');
-                                    const dataStr = el.data.padEnd(25, ' ');
-                                    return `${aiStr} ${dataStr} -> ${el.description}`;
-                                }).join('\n');
-
-                                parsedResultContainer.textContent = formattedOutput;
-                                parsedResultContainer.style.display = 'block';
-                                parsedResultLabel.classList.remove('hidden');
-                            }
-
-                        } else {
-                            formatType = "Code 128 (非GS1)";
-                            resultTextarea.value = rawText;
+                        if (index > 0) {
+                            allRawText += '\n---\n'; // Raw結果の区切り文字
+                            allParsedText += `\n--- (結果 ${index + 1}) ---\n`; // AI分割結果の区切り文字
                         }
-                    } else {
-                        formatType = result.getBarcodeFormat().toString();
-                        resultTextarea.value = rawText;
-                    }
 
-                    updateStatus(`${formatType} を検出しました！`);
+                        if (result.getBarcodeFormat() === BarcodeFormat.CODE_128) {
+                            const fnc1Index = rawText.indexOf(FNC1);
+                            const c1Prefix = rawText.startsWith(']C1');
+                            const hasInternalFNC1 = fnc1Index > 0;
+                            const rawKnownAIStart = startsWithKnownAI(rawText);
 
+                            if (c1Prefix || fnc1Index === 0 || hasInternalFNC1 || rawKnownAIStart) {
+                                formatType = "GS1-128";
+                                if (c1Prefix) {
+                                    gs1Data = rawText.substring(3);
+                                } else if (fnc1Index === 0) {
+                                    gs1Data = rawText.substring(1);
+                                } else {
+                                    gs1Data = rawText;
+                                }
+
+                                allRawText += gs1Data;
+
+                                const parsedElements = parseGS1Data(gs1Data);
+                                if (parsedElements.length > 0) {
+                                    const formattedOutput = parsedElements.map(el => {
+                                        const aiStr = `(${el.ai})`.padEnd(7, ' ');
+                                        const dataStr = el.data.padEnd(25, ' ');
+                                        return `${aiStr} ${dataStr} -> ${el.description}`;
+                                    }).join('\n');
+                                    allParsedText += formattedOutput;
+                                } else {
+                                    allParsedText += "(AI分割情報なし)";
+                                }
+
+                            } else {
+                                formatType = "Code 128 (非GS1)";
+                                allRawText += rawText;
+                                allParsedText += `[Code 128 (非GS1)]\n${rawText}`;
+                            }
+                        } else {
+                            formatType = result.getBarcodeFormat().toString();
+                            allRawText += rawText;
+                            allParsedText += `[${formatType}]\n${rawText}`;
+                        }
+                    }); // end forEach
+
+                    resultTextarea.value = allRawText;
+                    parsedResultContainer.textContent = allParsedText;
+                    parsedResultContainer.style.display = 'block';
+                    parsedResultLabel.classList.remove('hidden');
+
+                    updateStatus(`${results.length} 件のバーコードを検出しました！`);
                     if ('vibrate' in navigator) {
                         navigator.vibrate(200);
                     }
 
-                    // スキャン自体は停止するが、カメラや画像プレビューの状態は維持する
                     if (currentStream) {
-                        // リアルタイムスキャン中だった場合
-                        stopScan(); // カメラを停止 (stopScan内でUIも戻る)
+                        stopScan(); // カメラは停止
                     } else {
-                        // 画像スキャンだった場合
-                        // (画像プレビューは残し、ボタンを有効化)
-                        updateStatus(`${formatType} を検出しました！`);
+                        // 画像スキャンの場合はボタンを有効化
+                        updateStatus(`${results.length} 件のバーコードを検出しました！`);
                         startButton.disabled = false;
                         imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
                         imageUpload.value = '';
@@ -554,24 +513,32 @@
 
                 } else {
                     updateStatus('バーコードを検出できませんでした。');
+                    if (currentStream) {
+                        // カメラは停止しない (リアルタイムスキャンは継続)
+                    } else {
+                        // 画像スキャンの場合は失敗メッセージ
+                        showMessage('検出失敗', 'この画像からバーコードを検出できませんでした。');
+                        updateStatus('画像解析に失敗しました。');
+                        startButton.disabled = false;
+                        imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
+                        imageUpload.value = '';
+                    }
                 }
             }
+            // --- 修正ここまで ---
 
             startButton.addEventListener('click', async () => {
-                // 修正点 2: スキャンUIに変更
                 resultContainer.classList.add('scanning-active');
-
                 startButton.disabled = true;
                 stopButton.disabled = false;
-                imageUpload.closest('label').classList.add('pointer-events-none', 'opacity-50'); // 画像アップロードボタンを無効化
+                imageUpload.closest('label').classList.add('pointer-events-none', 'opacity-50');
                 resultTextarea.value = '';
                 parsedResultContainer.textContent = '';
                 parsedResultContainer.style.display = 'none';
                 parsedResultLabel.classList.add('hidden');
-
                 updateStatus('カメラを起動中...', true);
-                uploadedImagePreview.classList.add('hidden'); // 画像プレビューを非表示
-                videoElement.classList.remove('hidden'); // ビデオを表示
+                uploadedImagePreview.classList.add('hidden');
+                videoElement.classList.remove('hidden');
 
                 try {
                     const constraints = {
@@ -579,18 +546,17 @@
                             facingMode: 'environment'
                         }
                     };
-
                     currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                     videoElement.srcObject = currentStream;
                     await videoElement.play();
-
                     updateStatus('バーコードをスキャンしてください...');
                     scannerGuide.classList.remove('hidden');
 
                     codeReader.decodeFromVideoDevice(undefined, videoElement, (result, err) => {
                         if (result) {
-                            processScanResult(result);
-                            // リアルタイムスキャンの場合、成功したら（processScanResult内で）stopScanが呼ばれる
+                            // --- 修正: 複数結果を処理する関数に配列として渡す ---
+                            processScanResults([result]);
+                            // リアルタイムスキャンの場合、成功したら（processScanResults内で）stopScanが呼ばれる
                         } else if (err) {
                             if (!(err instanceof ZXing.NotFoundException) && !(err instanceof ZXing.ChecksumException) && !(err instanceof ZXing.FormatException)) {
                                 console.error('Scanning error:', err);
@@ -608,10 +574,9 @@
                     } else if (err.name === 'NotReadableError') {
                         errorMessage = 'カメラが他のアプリケーションで使用されている可能性があります。';
                     }
-
                     showMessage('カメラエラー', errorMessage);
                     updateStatus('エラーが発生しました。');
-                    stopScan(); // エラー時もstopScanを呼ぶ
+                    stopScan();
                 }
             });
 
@@ -621,77 +586,120 @@
                 const file = event.target.files[0];
                 if (!file) return;
 
-                stopScan(); // カメラが動作中の場合は停止 (stopScan内でUIも戻る)
-                startButton.disabled = true; // カメラボタンを無効化
-                imageUpload.closest('label').classList.add('pointer-events-none', 'opacity-50'); // アップロードボタンを無効化
-
-                resultTextarea.value = ''; // 結果をクリア
-                parsedResultContainer.textContent = ''; // AI結果もクリア
+                stopScan();
+                startButton.disabled = true;
+                imageUpload.closest('label').classList.add('pointer-events-none', 'opacity-50');
+                resultTextarea.value = '';
+                parsedResultContainer.textContent = '';
                 parsedResultContainer.style.display = 'none';
                 parsedResultLabel.classList.add('hidden');
-
-
                 updateStatus('画像を解析中...', true);
 
                 const reader = new FileReader();
+
                 reader.onload = async (e) => {
-                    // アップロードされた画像をプレビュー表示
-                    videoElement.classList.add('hidden'); // ビデオを非表示
                     uploadedImagePreview.src = e.target.result;
-                    uploadedImagePreview.classList.remove('hidden');
 
-                    try {
-                        // Image要素からバーコードをデコード
-                        const result = await codeReader.decodeFromImageUrl(e.target.result);
-                        processScanResult(result); // 解析と表示
+                    uploadedImagePreview.onload = async () => {
+                        videoElement.classList.add('hidden');
+                        uploadedImagePreview.classList.remove('hidden');
 
-                    } catch (err) {
-                        console.error('Image scan error:', err);
-                        if (err instanceof ZXing.NotFoundException) {
-                            showMessage('検出失敗', 'この画像からバーコードを検出できませんでした。');
-                            updateStatus('画像解析に失敗しました。');
-                        } else {
-                            showMessage('スキャンエラー', `画像解析中にエラーが発生しました: ${err.message}`);
-                            updateStatus('画像解析に失敗しました。');
+                        try {
+                            // --- 修正: decodeMultipleFromImageElement を使用 ---
+                            const results = await codeReader.decodeMultipleFromImageElement(uploadedImagePreview);
+
+                            if (results && results.length > 0) {
+                                // --- 修正: 中心に近い順にソート ---
+                                const imgCenterX = uploadedImagePreview.naturalWidth / 2;
+                                const imgCenterY = uploadedImagePreview.naturalHeight / 2;
+
+                                results.sort((a, b) => {
+                                    const centerA = getResultCenter(a.getResultPoints());
+                                    const centerB = getResultCenter(b.getResultPoints());
+
+                                    const distA = Math.pow(centerA.x - imgCenterX, 2) + Math.pow(centerA.y - imgCenterY, 2);
+                                    const distB = Math.pow(centerB.x - imgCenterX, 2) + Math.pow(centerB.y - imgCenterY, 2);
+
+                                    return distA - distB; // 距離が小さい順
+                                });
+                                // --- ソートここまで ---
+
+                                processScanResults(results); // ソート済みの複数結果を渡す
+
+                            } else {
+                                // 結果が空 (検出失敗)
+                                processScanResults([]);
+                            }
+
+                        } catch (err) {
+                            console.error('Image scan error:', err);
+                            // NotFoundException も含め、エラー時は空の結果として扱う
+                            processScanResults([]);
                         }
-                    } finally {
-                        // 処理完了後、ボタンを元に戻す (processScanResultで処理される)
-                        // 画像スキャンの場合、stopScan()は呼ばないため、ここでボタンを有効化
-                        if (!currentStream) { // (stopScanが呼ばれていない場合)
-                            startButton.disabled = false;
-                            imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
-                            imageUpload.value = ''; // 同じ画像を再度選択できるようにファイルをクリア
-                        }
-                    }
+                        // finally は processScanResults 内で処理される
+                    };
+
+                    uploadedImagePreview.onerror = () => {
+                        showMessage('エラー', '画像ファイルの読み込みに失敗しました。');
+                        updateStatus('画像読み込みエラー');
+                        startButton.disabled = false;
+                        imageUpload.closest('label').classList.remove('pointer-events-none', 'opacity-50');
+                        imageUpload.value = '';
+                    };
                 };
+
                 reader.readAsDataURL(file);
             });
 
+            // --- 修正: バーコードの中心座標を取得するヘルパー関数 ---
+            function getResultCenter(points) {
+                if (!points || points.length === 0) {
+                    return { x: 0, y: 0 };
+                }
+                const sumX = points.reduce((sum, p) => sum + p.getX(), 0);
+                const sumY = points.reduce((sum, p) => sum + p.getY(), 0);
+                return {
+                    x: sumX / points.length,
+                    y: sumY / points.length
+                };
+            }
+            // --- 修正ここまで ---
+
+
             copyButton.addEventListener('click', () => {
-                const textToCopy = resultTextarea.value;
-                if (!textToCopy) {
+                // --- 修正: 一番上の結果 (改行まで) をコピー ---
+                const allText = resultTextarea.value;
+                if (!allText) {
                     showMessage('コピー', 'コピーするデータがありません。');
                     return;
                 }
 
+                const firstResult = allText.split('\n---')[0]; // 区切り文字で分割して最初の要素を取得
+                const textToCopy = firstResult.trim();
+                // --- 修正ここまで ---
+
                 if (navigator.clipboard) {
                     navigator.clipboard.writeText(textToCopy).then(() => {
-                        showMessage('コピー完了', '結果(Raw)をクリップボードにコピーしました。');
+                        showMessage('コピー完了', '一番上の結果(Raw)をクリップボードにコピーしました。');
                     }).catch(err => {
                         console.error('Clipboard API error:', err);
-                        legacyCopy(textToCopy);
+                        legacyCopy(textToCopy); // フォールバック
                     });
                 } else {
-                    legacyCopy(textToCopy);
+                    legacyCopy(textToCopy); // フォールバック
                 }
             });
 
             function legacyCopy(text) {
                 try {
+                    // テキストエリアの値を一時的に変更してコピーする
+                    const originalValue = resultTextarea.value;
+                    resultTextarea.value = text;
                     resultTextarea.select();
                     document.execCommand('copy');
+                    resultTextarea.value = originalValue; // 元に戻す
                     resultTextarea.blur();
-                    showMessage('コピー完了', '結果(Raw)をクリップボードにコピーしました。');
+                    showMessage('コピー完了', '一番上の結果(Raw)をクリップボードにコピーしました。');
                 } catch (err) {
                     console.error('Legacy copy error:', err);
                     showMessage('コピー失敗', 'クリップボードへのコピーに失敗しました。');

@@ -52,6 +52,42 @@
             overflow-y: auto;
             padding: 20px;
         }
+
+        /* スキャンガイド */
+        #scanner-guide {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        #scanner-guide-box {
+            width: 90%;
+            max-width: 600px;
+            height: 3px;
+            background-color: #ff0000;
+            opacity: 0.8;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 0.8;
+            }
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        /* Canvas（非表示） */
+        #scan-canvas {
+            display: none;
+        }
     </style>
 </head>
 
@@ -61,6 +97,14 @@
     <div id="video-container">
         <video id="video" playsinline></video>
     </div>
+
+    <!-- スキャンガイド -->
+    <div id="scanner-guide">
+        <div id="scanner-guide-box"></div>
+    </div>
+
+    <!-- スキャン用Canvas（非表示） -->
+    <canvas id="scan-canvas"></canvas>
 
     <!-- 結果表示エリア -->
     <div id="result-container">
@@ -234,9 +278,15 @@
                     }
 
                     document.getElementById('startButton').addEventListener('click', () => {
+                        // スキャンガイドを表示
+                        document.getElementById('scanner-guide').style.display = 'flex';
+
                         codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
                             if (result) {
                                 console.log(result)
+
+                                // スキャン成功時はガイドを非表示
+                                document.getElementById('scanner-guide').style.display = 'none';
 
                                 // Check if it's CODE_128 (format 4)
                                 if (result.format === 4) {
